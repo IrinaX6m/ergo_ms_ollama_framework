@@ -1,0 +1,18 @@
+schema_version: 1
+module: ollama_framework
+tools:
+  - name: ollama
+    required: true
+models:
+  - provider: ollama
+    env: OLLAMA_EMBEDDINGS_MODEL
+    kind: embedding
+    default: embeddinggemma
+    required: true
+  - provider: ollama
+    env: OLLAMA_DEFAULT_MODEL
+    kind: llm
+    default: ministral-3:8b
+    required: false
+python:
+  groups: []

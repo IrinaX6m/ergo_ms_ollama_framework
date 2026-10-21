@@ -1,5 +1,8 @@
 # ollama_framework
 
+Инструмент и модели объявлены в [`runtime_requirements.yaml`](runtime_requirements.yaml).
+Ollama устанавливается общим реестром ядра; прежние CLI-алиасы и `ollama_models.yaml` поддерживаются.
+
 Единая точка runtime-вызовов Ollama и ops-управления сервером в ERGO MS.
 
 ## Документация

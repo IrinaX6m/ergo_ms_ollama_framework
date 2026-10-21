@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from dataclasses import asdict, dataclass, field
 from functools import lru_cache
@@ -20,6 +21,8 @@ from typing import Any
 import yaml
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 DEPLOYMENT_DIR = PROJECT_ROOT / 'core' / 'deployment'
 if str(DEPLOYMENT_DIR) not in sys.path:
     sys.path.insert(0, str(DEPLOYMENT_DIR))
@@ -28,6 +31,7 @@ from cli_locale import t  # noqa: E402
 from console_tags import configure_stdio_utf8, format_console  # noqa: E402
 from env_file_loader import load_project_env, parse_env_file  # noqa: E402
 from lifecycle.modules.catalog import ModuleCatalog  # noqa: E402
+from runtime_requirements import RuntimeRequirementsError, model_entries  # noqa: E402
 
 from modules.ollama_framework.deployment.model_names import (  # noqa: E402
     is_ollama_library_name,
@@ -132,7 +136,7 @@ def _resolve_model_name(
 
     env_key = str(entry.get('env') or '').strip()
     if env_key:
-        value = (env_values.get(env_key) or '').strip()
+        value = (os.environ.get(env_key, env_values.get(env_key)) or '').strip()
         if value:
             return value
         default = str(entry.get('default') or '').strip()
@@ -149,33 +153,8 @@ def _parse_models_file(
     module_dir_name: str,
     env_values: dict[str, str],
 ) -> list[ResolvedOllamaModel]:
-    try:
-        text = path.read_text(encoding='utf-8')
-    except OSError as exc:
-        _warn(t('yaml_read_failed', path=path, exc=exc))
-        return []
-
-    if not text.strip():
-        _warn(t('yaml_file_empty', path=path))
-        return []
-
-    try:
-        data = yaml.safe_load(text)
-    except yaml.YAMLError as exc:
-        _warn(t('yaml_parse_error', path=path, exc=exc))
-        return []
-
-    if not isinstance(data, dict):
-        _warn(t('yaml_root_must_be_object', path=path))
-        return []
-
-    module = str(data.get('module') or module_dir_name).strip() or module_dir_name
-    raw_models = data.get('models')
-    if raw_models is None:
-        return []
-    if not isinstance(raw_models, list):
-        _warn(f'{path}: models должен быть списком')
-        return []
+    module = module_dir_name
+    raw_models = model_entries(path.parent, 'ollama')
 
     resolved: list[ResolvedOllamaModel] = []
     relative = path.as_posix()
@@ -186,6 +165,8 @@ def _parse_models_file(
 
         name = _resolve_model_name(item, env_values=env_values)
         if not name:
+            if item.get('required', True):
+                raise RuntimeRequirementsError(f'{path}: обязательная модель {item.get("env", index)} не задана')
             _warn(f'{path}: models[{index}] — пустое имя (нужны name или env+default)')
             continue
         if not is_ollama_library_name(name):
@@ -243,7 +224,9 @@ def load_resolved_models(project_root: str) -> tuple[ResolvedOllamaModel, ...]:
 
     for module_dir in catalog.iter_module_dirs():
         path = module_dir / OLLAMA_MODELS_FILENAME
-        if not path.is_file():
+        if not path.is_file() and not (module_dir / 'runtime_requirements.yaml').is_file():
+            continue
+        if not model_entries(module_dir, 'ollama'):
             continue
         if not _module_may_declare_models(module_dir):
             _warn(
@@ -251,6 +234,8 @@ def load_resolved_models(project_root: str) -> tuple[ResolvedOllamaModel, ...]:
                 f'но не зависит от {OLLAMA_FRAMEWORK_MODULE} — пропуск'
             )
             continue
+        if (module_dir / 'runtime_requirements.yaml').is_file():
+            path = module_dir / 'runtime_requirements.yaml'
         collected.extend(
             _parse_models_file(
                 path,
@@ -275,8 +260,7 @@ def aggregate_ollama_models(project_root: Path | str) -> OllamaModelsAggregate:
             agg.modules.append(model.source_module)
 
     for module_dir in catalog.iter_module_dirs():
-        path = module_dir / OLLAMA_MODELS_FILENAME
-        if not path.is_file():
+        if not model_entries(module_dir, 'ollama'):
             continue
         if not _module_may_declare_models(module_dir):
             agg.skipped_modules.append(module_dir.name)
@@ -304,11 +288,14 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     root = (args.root or Path.cwd()).resolve()
-    if args.json:
-        print(dump_ollama_models_json(root))
-        return 0
-
-    agg = aggregate_ollama_models(root)
+    try:
+        if args.json:
+            print(dump_ollama_models_json(root))
+            return 0
+        agg = aggregate_ollama_models(root)
+    except RuntimeRequirementsError as exc:
+        print(format_console('error', str(exc)), file=sys.stderr)
+        return 1
     if not agg.models:
         print(format_console('info', 'Файлы ollama_models.yaml не найдены или пусты'))
         return 0
