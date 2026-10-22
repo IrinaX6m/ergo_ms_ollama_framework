@@ -6,7 +6,7 @@ commands:
   ollama:
     summary: Менеджер моделей (list/pull/remove/chat; без Django)
   pull-setup-models:
-    summary: Скачать модели из modules/*/ollama_models.yaml (setup-full)
+    summary: Скачать обязательные модели runtime_requirements/ollama_models; --include-optional включает остальные
   ollama-status:
     summary: Проверить процесс и API Ollama (без Django)
   start-ollama:

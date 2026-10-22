@@ -46,7 +46,7 @@ class OllamaOps:
     def get_ollama_client(self):
         try:
             import ollama
-            return ollama
+            return ollama.Client(host=get_ollama_base_url(), trust_env=ergo_http_trust_env())
         except ImportError as exc:
             raise ImportError('Возникла ошибка при импорте ollama') from exc
 

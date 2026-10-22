@@ -7,10 +7,6 @@ def _norm(name: str) -> str:
     return (name or '').strip()
 
 
-def _base(name: str) -> str:
-    return _norm(name).split(':', 1)[0]
-
-
 def is_ollama_library_name(name: str) -> bool:
     """False для Hugging Face org/name (снимок, не манифест ollama.com)."""
     raw = _norm(name)
@@ -35,13 +31,9 @@ def pull_names(requested: str) -> list[str]:
 
 def matches_installed(requested: str, installed: list[str] | tuple[str, ...]) -> bool:
     """True, если requested уже есть у Ollama."""
-    models = [item for item in installed if isinstance(item, str) and item]
-    for candidate in pull_names(requested):
-        if candidate in models:
-            return True
-        base = _base(candidate)
-        if any(item == base or item.startswith(f'{base}:') for item in models):
-            return True
-        if any(candidate in item for item in models):
-            return True
-    return False
+    # Only an omitted :latest is an alias; another tag is another model.
+    def canonical(value):
+        return value if ':' in value.rsplit('/', 1)[-1] else value + ':latest'
+    return any(canonical(candidate) == canonical(item)
+               for candidate in pull_names(requested)
+               for item in installed if isinstance(item, str) and item)

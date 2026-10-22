@@ -23,7 +23,9 @@ ergoms ollama_framework:logs-ollama
 ergoms ollama_framework:ollama --pull ministral-3:8b
 ```
 
-`pull-setup-models` (и setup-full) при необходимости поднимают Ollama в фоне. Serve (фон, `start-ollama` и служба `ergo-ollama`) пишет в один файл `logs/ollama-serve.log` (`ERGO_LOG_FILE_OLLAMA`, ротация `ergoms rotate-logs`). Хвост: `ergoms ollama_framework:logs-ollama` или `ergoms logs ergo-ollama`. По окончании `setup-full` процесс останавливается через `host_lifecycle.yaml` (`stop-ollama`).
+`pull-setup-models` (и setup-full) скачивает только обязательные модели; `--include-optional` явно включает остальные. Готовые локальные модели проверяются без запуска сервера. Для отсутствующих весов Ollama при необходимости поднимается в фоне. Serve (фон, `start-ollama` и служба `ergo-ollama`) пишет в один файл `logs/ollama-serve.log` (`ERGO_LOG_FILE_OLLAMA`, ротация `ergoms rotate-logs`). По окончании `setup-full` процесс останавливается через `host_lifecycle.yaml` (`stop-ollama`).
+
+Общий индекс подключает модуль через [`model_providers.yaml`](model_providers.yaml): адаптер использует прежние loader/OllamaOps и не переносит инференс в ядро. `ergoms runtime-model-resolve --provider ollama --model embeddinggemma --json` возвращает проверенный локальный manifest и точное runtime-имя. Проверяются manifest, наличие/размеры blobs; полная SHA256-проверка — `deployment.model_store.inspect_model(..., verify_hashes=True)`. Установки одной модели сериализуются; готовые веса повторно не скачиваются. SDK обращается к настроенному `OLLAMA_BASE_URL` с действующей политикой `ERGO_HTTP_TRUST_ENV`.
 
 ## Переменные окружения
 

@@ -36,6 +36,10 @@
 
 ## Команды
 
+Индекс моделей: `model_providers.yaml` → `deployment/model_provider.py`; чтение
+проверяет локальные manifests/blobs без сервера. Setup ставит только required;
+необязательные — явно (`--include-optional`). Подробнее — README.
+
 ```bash
 ergoms ollama_framework:install-ollama
 ergoms ollama_framework:pull-setup-models

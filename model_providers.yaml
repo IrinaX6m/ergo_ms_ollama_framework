@@ -1,0 +1,6 @@
+schema_version: 1
+module: ollama_framework
+providers:
+  ollama:
+    script: deployment/model_provider.py
+    storage: virtual_env/packages/ollama_models
