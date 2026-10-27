@@ -18,20 +18,14 @@ $coreDeployment = Join-Path $ProjectRoot 'core\deployment\windows\lib'
 function New-OllamaServiceWrapper {
     param([string]$Root)
 
-    $apiPath = Join-Path $Root 'core\api'
-    $venvActivate = Join-Path $Root 'virtual_env\python\Scripts\activate.bat'
     $wrapperDir = Get-ProjectWrappersDir -ProjectRoot $Root
     $wrapperPath = Join-Path $wrapperDir 'start_ollama.bat'
 
     New-Item -ItemType Directory -Path $wrapperDir -Force | Out-Null
 
-    $ergomsCmd = Get-Command ergoms -ErrorAction SilentlyContinue
-    if (-not $ergomsCmd) {
-        throw (
-            'Команда ergoms не найдена в PATH. ' +
-            'Добавьте core\deployment\bin в PATH или установите CLI проекта, ' +
-            'затем повторите установку службы.'
-        )
+    $ergomsCmd = Join-Path $Root 'core\deployment\bin\ergoms.cmd'
+    if (-not (Test-Path -LiteralPath $ergomsCmd)) {
+        throw "Не найден $ergomsCmd"
     }
 
     $content = @(
@@ -41,7 +35,7 @@ function New-OllamaServiceWrapper {
         'set PYTHONUTF8=1',
         "set `"PYTHONPATH=$Root`"",
         "cd /d `"$Root`"",
-        'ergoms ollama_framework:start-ollama'
+        "call `"$ergomsCmd`" ollama_framework:start-ollama"
     ) -join "`r`n"
 
     [System.IO.File]::WriteAllText(
