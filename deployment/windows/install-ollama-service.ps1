@@ -39,41 +39,78 @@ function New-OllamaServiceWrapper {
         'chcp 65001 >nul',
         'set PYTHONIOENCODING=utf-8',
         'set PYTHONUTF8=1',
-        "set PYTHONPATH=$Root",
+        "set `"PYTHONPATH=$Root`"",
         "cd /d `"$Root`"",
         'ergoms ollama_framework:start-ollama'
     ) -join "`r`n"
 
-    Set-Content -Path $wrapperPath -Value $content -Encoding ASCII
+    [System.IO.File]::WriteAllText(
+        $wrapperPath, $content + "`r`n", (New-Object System.Text.UTF8Encoding($false))
+    )
     return $wrapperPath
+}
+
+function Invoke-OllamaNssm {
+    param([string]$Executable, [string[]]$Arguments)
+
+    $previousPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = 'Continue'
+        $output = & $Executable @Arguments 2>&1
+        $code = $LASTEXITCODE
+    }
+    finally {
+        $ErrorActionPreference = $previousPreference
+    }
+    if ($code -ne 0) {
+        throw "NSSM $($Arguments[0]) failed (exit $code): $($output -join ' ')"
+    }
+    return $output
 }
 
 function Install-OllamaService {
     param([string]$Root)
 
     $serviceName = 'ergo-ollama'
-    $nssmExe = Install-NSSM
+    $nssmExe = Install-NSSM -Root $Root
+    $existingService = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
+    if ($existingService) {
+        $registered = ((Invoke-OllamaNssm $nssmExe @('get', $serviceName, 'AppDirectory')) -join "`n").Trim()
+        $expected = [System.IO.Path]::GetFullPath((Join-Path $Root 'core')).TrimEnd([char[]]'\/')
+        if (-not $registered -or [System.IO.Path]::GetFullPath($registered).TrimEnd([char[]]'\/') -ine $expected) {
+            throw "Service $serviceName belongs to another project: $registered"
+        }
+    }
+
+    # Validate and prepare the wrapper before stopping or removing an existing service.
+    $wrapperPath = New-OllamaServiceWrapper -Root $Root
     $logsDir = Get-ProjectLogsDir -ProjectRoot $Root
     New-Item -ItemType Directory -Path $logsDir -Force | Out-Null
 
-    $existingService = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
     if ($existingService) {
         Write-ColorOutput "-> Service $serviceName already exists, reinstalling..." Yellow
-        if ($existingService.Status -eq 'Running') {
-            & $nssmExe stop $serviceName 2>$null
-            Start-Sleep -Seconds 2
+        if ($existingService.Status -notin @('Stopped', 'StopPending')) {
+            Invoke-OllamaNssm $nssmExe @('stop', $serviceName) | Out-Null
         }
-        & $nssmExe remove $serviceName confirm 2>$null
-        Start-Sleep -Seconds 2
+        if (-not (Wait-ServiceStopped -ServiceName $serviceName -TimeoutSeconds 30)) {
+            throw "Service $serviceName did not stop within 30 seconds"
+        }
+        Invoke-OllamaNssm $nssmExe @('remove', $serviceName, 'confirm') | Out-Null
+        $deadline = (Get-Date).AddSeconds(30)
+        while (Get-Service -Name $serviceName -ErrorAction SilentlyContinue) {
+            if ((Get-Date) -ge $deadline) {
+                throw "Service $serviceName was not removed within 30 seconds"
+            }
+            Start-Sleep -Milliseconds 500
+        }
     }
 
-    $wrapperPath = New-OllamaServiceWrapper -Root $Root
     Write-ColorOutput "-> Installing service: $serviceName" Cyan
 
-    & $nssmExe install $serviceName $wrapperPath
-    & $nssmExe set $serviceName DisplayName "Ergo MS - $serviceName"
-    & $nssmExe set $serviceName Description "Ergo Management System - Ollama Server"
-    & $nssmExe set $serviceName AppDirectory (Join-Path $Root 'core')
+    Invoke-OllamaNssm $nssmExe @('install', $serviceName, $wrapperPath) | Out-Null
+    Invoke-OllamaNssm $nssmExe @('set', $serviceName, 'DisplayName', "Ergo MS - $serviceName") | Out-Null
+    Invoke-OllamaNssm $nssmExe @('set', $serviceName, 'Description', 'Ergo Management System - Ollama Server') | Out-Null
+    Invoke-OllamaNssm $nssmExe @('set', $serviceName, 'AppDirectory', (Join-Path $Root 'core')) | Out-Null
     $singleLog = Join-Path $logsDir 'ollama-serve.log'
     $pythonExe = Join-Path $Root 'virtual_env\python\Scripts\python.exe'
     $logEnvScript = Join-Path $Root 'core\deployment\scripts\log_env.py'
@@ -87,12 +124,12 @@ function Install-OllamaService {
     if ($logParent) {
         New-Item -ItemType Directory -Path $logParent -Force | Out-Null
     }
-    & $nssmExe set $serviceName AppStdout $singleLog
-    & $nssmExe set $serviceName AppStderr $singleLog
-    & $nssmExe set $serviceName AppEnvironmentExtra "PYTHONIOENCODING=UTF-8" "PYTHONUTF8=1" "PYTHONUNBUFFERED=1"
-    & $nssmExe set $serviceName Start SERVICE_AUTO_START
-    & $nssmExe set $serviceName AppExit Default Restart
-    & $nssmExe set $serviceName AppRestartDelay 5000
+    Invoke-OllamaNssm $nssmExe @('set', $serviceName, 'AppStdout', $singleLog) | Out-Null
+    Invoke-OllamaNssm $nssmExe @('set', $serviceName, 'AppStderr', $singleLog) | Out-Null
+    Invoke-OllamaNssm $nssmExe @('set', $serviceName, 'AppEnvironmentExtra', 'PYTHONIOENCODING=UTF-8', 'PYTHONUTF8=1', 'PYTHONUNBUFFERED=1') | Out-Null
+    Invoke-OllamaNssm $nssmExe @('set', $serviceName, 'Start', 'SERVICE_AUTO_START') | Out-Null
+    Invoke-OllamaNssm $nssmExe @('set', $serviceName, 'AppExit', 'Default', 'Restart') | Out-Null
+    Invoke-OllamaNssm $nssmExe @('set', $serviceName, 'AppRestartDelay', '5000') | Out-Null
 
     Write-ColorOutput "[OK] Service $serviceName installed" Green
 }

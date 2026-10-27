@@ -27,6 +27,8 @@ ergoms ollama_framework:ollama --pull ministral-3:8b
 
 Общий индекс подключает модуль через [`model_providers.yaml`](model_providers.yaml): адаптер использует прежние loader/OllamaOps и не переносит инференс в ядро. `ergoms runtime-model-resolve --provider ollama --model embeddinggemma --json` возвращает проверенный локальный manifest и точное runtime-имя. Проверяются manifest, наличие/размеры blobs; полная SHA256-проверка — `deployment.model_store.inspect_model(..., verify_hashes=True)`. Установки одной модели сериализуются; готовые веса повторно не скачиваются. SDK обращается к настроенному `OLLAMA_BASE_URL` с действующей политикой `ERGO_HTTP_TRUST_ENV`.
 
+Windows-установщик службы передаёт корень проекта в NSSM. Перед переустановкой он проверяет `AppDirectory`, подготавливает wrapper, ждёт остановки и удаления прежней службы не более 30 секунд на каждый шаг. Служба другого корня не изменяется; ошибка NSSM или таймаут прерывают установку до запуска. Wrapper сохраняет пути с пробелами и кириллицей в UTF-8 без BOM. Регрессии в `tests/test_windows_service_installer.py` используют подменённые NSSM и команды служб, без обращения к действующим службам Windows.
+
 ## Переменные окружения
 
 Задаются в корневом `.env` и/или в `modules/ollama_framework/.env` (пример — [`.env.example`](.env.example)). Для ops-скриптов `deployment/paths.read_env` читает: переменные процесса → модульный `.env` → корневой `.env`.
