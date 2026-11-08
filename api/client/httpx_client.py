@@ -4,6 +4,7 @@ import json
 import logging
 import time
 from typing import Any, Callable, Dict, Iterator, List, Optional
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -76,8 +77,16 @@ class HttpxOllamaClient(BaseLLMClient):
         max_retries: int,
         keep_alive: str,
         device_config: Optional[Dict[str, Any]] = None,
+        local_only: bool = False,
     ) -> None:
         super().__init__(model=model)
+        if local_only:
+            parts = urlsplit(base_url)
+            if (parts.scheme != 'http' or parts.hostname not in ('127.0.0.1', '::1')
+                    or parts.username is not None or parts.password is not None
+                    or parts.path not in ('', '/') or parts.query or parts.fragment):
+                raise LLMClientError('Локальный режим требует HTTP-адрес числового loopback без пути')
+        self._local_only = local_only
         self._base_url = base_url.rstrip('/')
         self._max_retries = max_retries
         self._device_config = device_config or {}
@@ -95,7 +104,7 @@ class HttpxOllamaClient(BaseLLMClient):
             connect=min(10.0, request_timeout),
             write=request_timeout,
             # 4096 токенов при ~11 ток/с не укладываются в 360 с: ответ обрывался и слот оставался занят.
-            read=max(stream_timeout, request_timeout * 2, 900.0),
+            read=request_timeout if local_only else max(stream_timeout, request_timeout * 2, 900.0),
         )
         from src.core.utils.http_proxy import http_trust_env
 
@@ -103,7 +112,7 @@ class HttpxOllamaClient(BaseLLMClient):
             base_url=self._base_url,
             timeout=timeout,
             limits=limits,
-            trust_env=http_trust_env(),
+            trust_env=False if local_only else http_trust_env(),
         )
         self._keep_alive = keep_alive
 
@@ -136,6 +145,9 @@ class HttpxOllamaClient(BaseLLMClient):
             raise
 
     def _ensure_resolved_model(self) -> None:
+        if self._local_only:
+            self._check_local_model(self.model)
+            return
         if self._model_resolved:
             return
         models = self.list_models()
@@ -149,7 +161,20 @@ class HttpxOllamaClient(BaseLLMClient):
             self.model = resolved
         self._model_resolved = True
 
+    def _check_local_model(self, model: str) -> None:
+        # Проверяем каждый вызов: установленный тег мог быть заменён облачным.
+        response = self._client.post('/api/show', json={'model': model})
+        response.raise_for_status()
+        info = response.json()
+        if (not isinstance(info, dict) or not isinstance(info.get('model_info'), dict)
+                or not info['model_info'] or info.get('remote_host') or info.get('remote_model')
+                or 'cloud' in model.lower()):
+            raise LLMClientError('В локальном режиме требуется установленная локальная модель')
+
     def _resolve_embed_model(self, requested: str) -> str:
+        if self._local_only:
+            self._check_local_model(requested)
+            return requested
         cached = self._resolved_embed_models.get(requested)
         if cached is not None:
             return cached
@@ -377,7 +402,7 @@ class HttpxOllamaClient(BaseLLMClient):
             payload['options'].update(extra)
         # gpt-oss игнорирует bool think; без уровня low рассуждение съедает num_predict,
         # и в content не остаётся JSON. false + схема даёт прозу вместо объекта.
-        if format is not None:
+        if format is not None and not (self._local_only and payload.get('think') is False):
             current = payload.get('think')
             if current in (None, True, False, 'true', 'false'):
                 payload['think'] = 'low'
@@ -429,7 +454,7 @@ class HttpxOllamaClient(BaseLLMClient):
             retry = dict(payload)
             retry.pop('think', None)
             response = self._client.post('/api/chat', json=retry)
-        if response.status_code == 404 and 'not found' in self._response_body_text(response):
+        if not self._local_only and response.status_code == 404 and 'not found' in self._response_body_text(response):
             from ..settings import OLLAMA_FILE_BASE_URL
 
             alt = (OLLAMA_FILE_BASE_URL or '').rstrip('/')

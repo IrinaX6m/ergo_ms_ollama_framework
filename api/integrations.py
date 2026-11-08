@@ -87,6 +87,25 @@ def _chat(
     )
 
 
+@bridge.provide_op('ollama_framework.chat_local')
+def _chat_local(messages: List[Dict[str, Any]], *, model: str, timeout: int = 30,
+                num_predict: int = 128, format: Optional[Any] = None) -> str:
+    """Внутренний локальный вызов без подмены адреса, модели и сетевого выхода."""
+    _raise_if_invalid(validate_chat_messages(messages))
+    if not isinstance(model, str) or not model or len(model) > 200:
+        raise LLMClientError('Нужно явное имя локальной модели')
+    timeout = max(1, min(60, int(timeout)))
+    return run_chat(
+        messages, skip_env_injection=True, temperature=0, num_predict=max(1, min(512, int(num_predict))),
+        format=format, config={
+            'provider': 'ollama', 'model': model, 'base_url': 'http://127.0.0.1:11434',
+            'request_timeout': timeout, 'stream_timeout': timeout, 'max_retries': 0,
+            'keep_alive': '5m', 'concurrency_limit': 1,
+            'provider_config': {'base_url': 'http://127.0.0.1:11434', 'local_only': True, 'think': False},
+        },
+    )
+
+
 @bridge.provide_op('ollama_framework.chat_stream')
 def _chat_stream(
     messages: List[Dict[str, Any]],

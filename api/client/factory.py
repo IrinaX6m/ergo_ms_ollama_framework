@@ -28,6 +28,7 @@ def _client_cache_key(
     max_retries: int,
     keep_alive: str,
     device_config: Optional[Dict[str, Any]],
+    local_only: bool = False,
 ) -> tuple:
     return (
         base_url.rstrip('/'),
@@ -38,6 +39,7 @@ def _client_cache_key(
         max_retries,
         keep_alive,
         _device_config_cache_key(device_config),
+        local_only,
     )
 
 
@@ -56,6 +58,9 @@ def build_llm_client(
 ) -> BaseLLMClient:
     provider_config = provider_config or {}
     device_config = device_config or {}
+    local_only = provider_config.get('local_only', False)
+    if not isinstance(local_only, bool):
+        raise LLMClientError('local_only должен быть логическим значением')
 
     normalized_provider = (provider or 'ollama').lower()
     if normalized_provider == 'llama_cpp':
@@ -75,6 +80,7 @@ def build_llm_client(
             max_retries=max_retries,
             keep_alive=keep_alive,
             device_config=device_config,
+            local_only=local_only,
         )
         with _CLIENT_CACHE_LOCK:
             cached = _CLIENT_CACHE.get(cache_key)
@@ -89,6 +95,7 @@ def build_llm_client(
                 max_retries=max_retries,
                 keep_alive=keep_alive,
                 device_config=device_config,
+                local_only=local_only,
             )
             _CLIENT_CACHE[cache_key] = client
             return client
