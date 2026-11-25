@@ -47,3 +47,6 @@ ergoms ollama_framework:start-ollama
 ergoms ollama_framework:ollama-status
 ergoms help module ollama_framework
 ```
+
+
+JSON chat: замена bool `think` на `low` нужна только семейству `gpt-oss`; остальные модели сохраняют переданный режим. Строго локальный режим сохраняет явное `think=false` для любой модели.
