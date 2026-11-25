@@ -18,11 +18,12 @@ class StructuredChatThinkingTests(unittest.TestCase):
             if stream:
                 return httpx.Response(200, content=b'{"message":{"content":"{}"},"done":true}\n')
             return httpx.Response(200, json={'message': {'content': '{}'}})
-        client = HttpxOllamaClient(model=model, base_url='http://ollama.test', request_timeout=1,
+        base_url = 'http://127.0.0.1:11434' if local_only else 'http://ollama.test'
+        client = HttpxOllamaClient(model=model, base_url=base_url, request_timeout=1,
             stream_timeout=1, concurrency_limit=1, max_retries=0, keep_alive='1m',
             device_config={} if think is None else {'think': think}, local_only=local_only)
         client._client.close()
-        client._client = httpx.Client(base_url='http://ollama.test', transport=httpx.MockTransport(handler))
+        client._client = httpx.Client(base_url=base_url, transport=httpx.MockTransport(handler))
         self.addCleanup(client._client.close)
         result = client.chat([{'role': 'user', 'content': 'Return JSON'}],
             format={'type': 'object'}, stream=stream)
